@@ -237,7 +237,8 @@ def start_run(
         run_name: Name of new run. Used only when ``run_id`` is unspecified. If a new run is
             created and ``run_name`` is not specified, a random name will be generated for the run.
         nested: Controls whether run is nested in parent run. ``True`` creates a nested run.
-        parent_run_id: If specified, the current run will be nested under the the run with the specified UUID.
+        parent_run_id: If specified, the current run will be nested under the the run with
+            the specified UUID.
         tags: An optional dictionary of string keys and values to set as tags on the run.
             If a run is being resumed, these tags are set on the resumed run. If a new run is
             being created, these tags are set on the new run.
@@ -361,16 +362,15 @@ def start_run(
             )
         active_run_obj = client.get_run(existing_run_id)
     else:
-
         if parent_run_id:
             _validate_run_id(parent_run_id)
             # Make sure parent_run_id matches the current run id, if there is an active run
             if len(_active_run_stack) > 0 and parent_run_id != _active_run_stack[0].info.run_id:
                 raise Exception(
                     (
-                            "Current run with UUID {} does not match the specified parent_run_id {} "
-                            + "To start a new nested run under the parent run with UUID {}, "
-                            + "first end the current run with mlflow.end_run()."
+                        "Current run with UUID {} does not match the specified parent_run_id {} "
+                        + "To start a new nested run under the parent run with UUID {}, "
+                        + "first end the current run with mlflow.end_run()."
                     ).format(_active_run_stack[0].info.run_id, parent_run_id)
                 )
             parent_run_obj = client.get_run(parent_run_id)
@@ -380,7 +380,9 @@ def start_run(
                     f"Cannot start run under parent run with ID {parent_run_id} because it is in the deleted state."
                 )
         else:
-            parent_run_id = _active_run_stack[-1].info.run_id if len(_active_run_stack) > 0 else None
+            parent_run_id = (
+                _active_run_stack[-1].info.run_id if len(_active_run_stack) > 0 else None
+            )
 
         exp_id_for_run = experiment_id if experiment_id is not None else _get_experiment_id()
 
@@ -850,8 +852,8 @@ def log_metrics(
     metrics: Dict[str, float],
     step: Optional[int] = None,
     synchronous: Optional[bool] = None,
-    timestamp: Optional[int] = None,
     run_id: Optional[str] = None,
+    timestamp: Optional[int] = None,
 ) -> Optional[RunOperations]:
     """
     Log multiple metrics for the current run. If no run is active, this method will create a new
@@ -864,11 +866,11 @@ def log_metrics(
             max / min float values.
         step: A single integer step at which to log the specified
             Metrics. If unspecified, each metric is logged at step zero.
-        timestamp: Time when these metrics were calculated. Defaults to the current system time.
         synchronous: *Experimental* If True, blocks until the metrics are logged
             successfully. If False, logs the metrics asynchronously and
             returns a future representing the logging operation. If None, read from environment
             variable `MLFLOW_ENABLE_ASYNC_LOGGING`, which defaults to False if not set.
+        timestamp: Time when these metrics were calculated. Defaults to the current system time.
 
     Returns:
         When `synchronous=True`, returns None. When `synchronous=False`, returns an

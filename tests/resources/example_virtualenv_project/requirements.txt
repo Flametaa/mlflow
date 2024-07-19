@@ -1,2 +1,2 @@
-mlflow
+/Users/sialakarim/dev/mlflow
 scikit-learn==1.0.2
