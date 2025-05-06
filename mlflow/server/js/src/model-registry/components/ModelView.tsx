@@ -10,7 +10,8 @@ import { ModelVersionTable } from './ModelVersionTable';
 import Utils from '../../common/utils/Utils';
 import { Link, NavigateFunction } from '../../common/utils/RoutingUtils';
 import { ModelRegistryRoutes } from '../routes';
-import { ACTIVE_STAGES } from '../constants';
+import LocalStorageUtils from '../../common/utils/LocalStorageUtils';
+import { ACTIVE_STAGES, MODEL_VERSIONS_PER_PAGE_COMPACT } from '../constants';
 import { CollapsibleSection } from '../../common/components/CollapsibleSection';
 import { EditableNote } from '../../common/components/EditableNote';
 import { EditableTagsTableView } from '../../common/components/EditableTagsTableView';
@@ -19,7 +20,7 @@ import { setRegisteredModelTagApi, deleteRegisteredModelTagApi } from '../action
 import { connect } from 'react-redux';
 import { OverflowMenu, PageHeader } from '../../shared/building_blocks/PageHeader';
 import { FormattedMessage, type IntlShape, injectIntl } from 'react-intl';
-import { Button, SegmentedControlGroup, SegmentedControlButton, DangerModal } from '@databricks/design-system';
+import { Button, SegmentedControlGroup, SegmentedControlButton, DangerModal, CursorPagination } from '@databricks/design-system';
 import { Descriptions } from '../../common/components/Descriptions';
 import { ModelVersionInfoEntity, type ModelEntity } from '../../experiment-tracking/types';
 import { shouldShowModelsNextUI } from '../../common/utils/FeatureUtils';
@@ -49,6 +50,19 @@ type ModelViewImplProps = {
   intl: IntlShape;
   onMetadataUpdated: () => void;
   usingNextModelsUI: boolean;
+  tagSearchInput: string;
+  orderByKey: string;
+  orderByAsc: boolean;
+  currentPage: number;
+  nextPageToken: string | null;
+  loading?: boolean;
+  error?: Error;
+  onSearch: (...args: any[]) => any;
+  onClickNext: (...args: any[]) => any;
+  onClickPrev: (...args: any[]) => any;
+  onClickSortableColumn: (...args: any[]) => any;
+  onSetMaxResult: (...args: any[]) => any;
+  maxResultValue: number;
 };
 
 type ModelViewImplState = any;
@@ -60,6 +74,7 @@ export class ModelViewImpl extends React.Component<ModelViewImplProps, ModelView
   }
 
   state = {
+    maxResultsSelection: MODEL_VERSIONS_PER_PAGE_COMPACT,
     stageFilter: StageFilters.ALL,
     showDescriptionEditor: false,
     isDeleteModalVisible: false,
@@ -69,7 +84,20 @@ export class ModelViewImpl extends React.Component<ModelViewImplProps, ModelView
     updatingEmailPreferences: false,
   };
 
+  static defaultProps = {
+    tagSearchInput: '',
+  };
+  
+
   formRef = React.createRef();
+
+  /**
+   * Returns a LocalStorageStore instance that can be used to persist data associated with the
+   * ModelRegistry component.
+   */
+  static getLocalStore(key: any) {
+    return LocalStorageUtils.getStoreForComponent('ModelView', key);
+  }
 
   componentDidMount() {
     // @ts-expect-error TS(2532): Object is possibly 'undefined'.
@@ -79,6 +107,18 @@ export class ModelViewImpl extends React.Component<ModelViewImplProps, ModelView
 
   handleStageFilterChange = (e: any) => {
     this.setState({ stageFilter: e.target.value });
+  };
+
+  handleClickNext = () => {
+    this.props.onClickNext();
+  };
+
+  handleClickPrev = () => {
+    this.props.onClickPrev();
+  };
+
+  handleSetMaxResult = ({ item, key, keyPath, domEvent }: any) => {
+    this.props.onSetMaxResult(key);
   };
 
   getActiveVersionsCount() {
@@ -94,6 +134,11 @@ export class ModelViewImpl extends React.Component<ModelViewImplProps, ModelView
     return this.props.handleEditDescription(description).then(() => {
       this.setState({ showDescriptionEditor: false });
     });
+  };
+
+  handleSearch = (event: any, tagSearchInput: any) => {
+    event?.preventDefault();
+    this.props.onSearch(tagSearchInput);
   };
 
   startEditingDescription = (e: any) => {
@@ -235,7 +280,16 @@ export class ModelViewImpl extends React.Component<ModelViewImplProps, ModelView
   }
 
   renderDetails = () => {
-    const { model, modelVersions, tags } = this.props;
+    const {
+      model,
+      modelVersions,
+      tags,
+      currentPage,
+      nextPageToken,
+      tagSearchInput,
+      loading,
+      error
+    } = this.props;
     const {
       stageFilter,
       showDescriptionEditor,
@@ -409,7 +463,30 @@ export class ModelViewImpl extends React.Component<ModelViewImplProps, ModelView
             onMetadataUpdated={this.props.onMetadataUpdated}
             usingNextModelsUI={this.props.usingNextModelsUI}
             aliases={model?.aliases}
+            pagination={
+              <div
+                data-testid="model-list-view-pagination"
+                css={{ width: '100%', alignItems: 'center', display: 'flex' }}
+              >
+                <div css={{ flex: 1 }}>{shouldShowModelsNextUI() && <ModelsNextUIToggleSwitch />}</div>
+                <div>
+                  <CursorPagination
+                    componentId="codegen_mlflow_app_src_model-registry_components_modellistview.tsx_305"
+                    hasNextPage={Boolean(nextPageToken)}
+                    hasPreviousPage={currentPage > 1}
+                    onNextPage={this.handleClickNext}
+                    onPreviousPage={this.handleClickPrev}
+                    pageSizeSelect={{
+                      onChange: (num) => this.handleSetMaxResult({ key: num }),
+                      default: this.props.maxResultValue,
+                      options: [10, 25, 50, 100],
+                    }}
+                  />
+                </div>
+              </div>
+            }
           />
+          
         </CollapsibleSection>
 
         {/* Delete Model Dialog */}

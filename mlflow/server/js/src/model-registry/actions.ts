@@ -156,29 +156,21 @@ export const resolveFilterValue = (value: any, includeWildCard = false) => {
 };
 
 export const SEARCH_MODEL_VERSIONS = 'SEARCH_MODEL_VERSIONS';
-export const searchModelVersionsApi = (filterObj: any, id = getUUID(), maxResults: number | undefined = undefined) => {
-  const filter = Object.keys(filterObj)
-    .map((key) => {
-      if (Array.isArray(filterObj[key]) && filterObj[key].length > 1) {
-        return `${key} IN (${filterObj[key].map((elem: any) => resolveFilterValue(elem)).join()})`;
-      } else if (Array.isArray(filterObj[key]) && filterObj[key].length === 1) {
-        return `${key}=${resolveFilterValue(filterObj[key][0])}`;
-      } else {
-        return `${key}=${resolveFilterValue(filterObj[key])}`;
-      }
-    })
-    .join('&');
-
-  const reqBody: any = {
-    filter,
-  };
-  if (maxResults) {
-    reqBody['max_results'] = maxResults;
-  }
-
+export const searchModelVersionsApi = (
+  filter?: any,
+  id = getUUID(),
+  maxResults?: any,
+  orderBy?: any,
+  pageToken?: any,
+) => {
   return {
     type: SEARCH_MODEL_VERSIONS,
-    payload: Services.searchModelVersions(reqBody),
+    payload: Services.searchModelVersions({
+      filter,
+      max_results: maxResults,
+      order_by: orderBy,
+      ...(pageToken ? { page_token: pageToken } : null),
+    }),
     meta: { id },
   };
 };

@@ -15,8 +15,10 @@ import {
 } from '../actions';
 import { ModelView } from './ModelView';
 import { getModelVersions } from '../reducers';
-import { MODEL_VERSION_STATUS_POLL_INTERVAL as POLL_INTERVAL } from '../constants';
-import { PageContainer } from '../../common/components/PageContainer';
+import LocalStorageUtils from '../../common/utils/LocalStorageUtils';
+import { createMLflowRoutePath } from '../../common/utils/RoutingUtils';
+import {MODEL_VERSIONS_SEARCH_TIMESTAMP_FIELD, MODEL_VERSIONS_PER_PAGE_COMPACT, AntdTableSortOrder } from '../constants';
+import { ScrollablePageWrapper } from '../../common/components/ScrollablePageWrapper';
 import RequestStateWrapper, { triggerError } from '../../common/components/RequestStateWrapper';
 import { Spinner } from '../../common/components/Spinner';
 import { ErrorView } from '../../common/components/ErrorView';
@@ -48,22 +50,159 @@ type ModelPageImplProps = WithRouterNextProps<{ subpage: string }> & {
   intl?: any;
 };
 
-export class ModelPageImpl extends React.Component<ModelPageImplProps> {
-  hasUnfilledRequests: any;
-  pollIntervalId: any;
+type ModelPageImplState = {
+  orderByKey: string;
+  orderByAsc: boolean;
+  currentPage: number;
+  maxResultsSelection: number;
+  pageTokens: Record<number, string | null>;
+  loading: boolean;
+  error: Error | undefined;
+  tagSearchInput: string;
+};
 
+export class ModelPageImpl extends React.Component<ModelPageImplProps, ModelPageImplState> {
+  constructor(props: ModelPageImplProps) {
+      super(props);
+      this.state = {
+        orderByKey: MODEL_VERSIONS_SEARCH_TIMESTAMP_FIELD,
+        orderByAsc: false,
+        currentPage: 1,
+        maxResultsSelection: this.getPersistedMaxResults(),
+        pageTokens: {},
+        loading: true,
+        error: undefined,
+        tagSearchInput: this.getModelVersionsTagSearchFiltersFromUrlState(this.getUrlState() as Record<string, string>),
+      };
+    }
+  modelPageStoreKey = 'ModelPageStore';
+
+  defaultPersistedPageTokens = { 1: null };
   initSearchModelVersionsApiRequestId = getUUID();
+  SearchModelVersionsApiRequestId = getUUID();
   initgetRegisteredModelApiRequestId = getUUID();
+  getRegisteredModelApiRequestId = getUUID();
   updateRegisteredModelApiId = getUUID();
   deleteRegisteredModelApiId = getUUID();
 
   criticalInitialRequestIds = [this.initSearchModelVersionsApiRequestId, this.initgetRegisteredModelApiRequestId];
+  
+  componentDidMount() {
+    const urlState = this.getUrlState();
+    const persistedPageTokens = this.getPersistedPageTokens();
+    const maxResultsForTokens = this.getPersistedMaxResults();
+    // eslint-disable-next-line react/no-did-mount-set-state
+    this.setState(
+      {
+        // @ts-expect-error TS(4111): Property 'orderByKey' comes from an index signatur... Remove this comment to see the full error message
+        orderByKey: urlState.orderByKey === undefined ? this.state.orderByKey : urlState.orderByKey,
+        orderByAsc:
+          // @ts-expect-error TS(4111): Property 'orderByAsc' comes from an index signatur... Remove this comment to see the full error message
+          urlState.orderByAsc === undefined
+            ? this.state.orderByAsc
+            : // @ts-expect-error TS(4111): Property 'orderByAsc' comes from an index signatur... Remove this comment to see the full error message
+              urlState.orderByAsc === 'true',
+        currentPage:
+          // @ts-expect-error TS(4111): Property 'page' comes from an index signature, so ... Remove this comment to see the full error message
+          urlState.page !== undefined && (urlState as any).page in persistedPageTokens
+            ? // @ts-expect-error TS(2345): Argument of type 'unknown' is not assignable to pa... Remove this comment to see the full error message
+              parseInt(urlState.page, 10)
+            : this.state.currentPage,
+        maxResultsSelection: maxResultsForTokens,
+        pageTokens: persistedPageTokens,
+      },
+      () => {
+        this.loadModelVersions(true);
+      },
+    );
+  }
 
+  getUrlState() {
+    return this.props.location ? Utils.getSearchParamsFromUrl(this.props.location.search) : {};
+  }
+
+  parseTagFiltersFromTagSearchInput(tagSearchInput: string): string {
+    const tagFilters = tagSearchInput
+      .split(' AND ')
+      .map((tagFilter: string) => {
+        return tagFilter.trim();
+      })
+      .filter((tagFilter: string) => {
+        return tagFilter.startsWith('tags.');
+      });
+    return tagFilters.join(' AND ');
+  }
+
+  getModelVersionsTagSearchFiltersFromUrlState(urlState: Record<string, string>): string {
+    const tagSearchInput = 'tagSearchInput' in urlState ? urlState['tagSearchInput'] : '';
+    return this.parseTagFiltersFromTagSearchInput(tagSearchInput);
+  }
+
+  updateUrlWithSearchFilter = (tagSearchInput: any, orderByKey: any, orderByAsc: any, page: any) => {
+    const urlParams = {};
+    if (tagSearchInput) {
+      // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
+      urlParams['tagSearchInput'] = tagSearchInput;
+    }
+    if (orderByAsc === false) {
+      // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
+      urlParams['orderByAsc'] = orderByAsc;
+    }
+    if (page && page !== 1) {
+      // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
+      urlParams['page'] = page;
+    }
+    const newUrl = createMLflowRoutePath(`/models?${Utils.getSearchUrlFromState(urlParams)}`);
+    if (newUrl !== this.props.location.pathname + this.props.location.search) {
+      this.props.navigate(newUrl);
+    }
+  };
+  // Loads the initial set of model versions.
+  loadModelVersions(isInitialLoading = false) {
+    this.loadPage(this.state.currentPage, isInitialLoading);
+  }
+  /**
+   * Returns a LocalStorageStore instance that can be used to persist data associated with the
+   * ModelRegistry component.
+   */
+  static getLocalStore(key: any) {
+    return LocalStorageUtils.getSessionScopedStoreForComponent('ModelPage', key);
+  }
+ 
+  getPersistedPageTokens() {
+    const store = ModelPageImpl.getLocalStore(this.modelPageStoreKey);
+    if (store && store.getItem('page_tokens')) {
+      return JSON.parse(store.getItem('page_tokens'));
+    } else {
+      return this.defaultPersistedPageTokens;
+    }
+  }
+
+  setPersistedPageTokens(page_tokens: any) {
+    const store = ModelPageImpl.getLocalStore(this.modelPageStoreKey);
+    if (store) {
+      store.setItem('page_tokens', JSON.stringify(page_tokens));
+    }
+  }
+
+  getPersistedMaxResults() {
+    const store = ModelPageImpl.getLocalStore(this.modelPageStoreKey);
+    if (store && store.getItem('max_results')) {
+      return parseInt(store.getItem('max_results'), 10);
+    } else {
+      return MODEL_VERSIONS_PER_PAGE_COMPACT;
+    }
+  }
+  setMaxResultsInStore(max_results: any) {
+    const store = ModelPageImpl.getLocalStore(this.modelPageStoreKey);
+    store.setItem('max_results', max_results.toString());
+  }
+  
   handleEditDescription = (description: any) => {
     const { model } = this.props;
     return this.props
       .updateRegisteredModelApi(model.name, description, this.updateRegisteredModelApiId)
-      .then(this.loadData);
+      .then(this.loadPage(1, false));
   };
 
   handleDelete = () => {
@@ -71,127 +210,154 @@ export class ModelPageImpl extends React.Component<ModelPageImplProps> {
     return this.props.deleteRegisteredModelApi(model.name, this.deleteRegisteredModelApiId);
   };
 
-  loadData = (isInitialLoading: any) => {
+  resetHistoryState() {
+    this.setState((prevState: any) => ({
+      currentPage: 1,
+      pageTokens: this.defaultPersistedPageTokens,
+    }));
+    this.setPersistedPageTokens(this.defaultPersistedPageTokens);
+  }
+  
+  static getOrderByExpr = (orderByKey: any, orderByAsc: any) =>
+    orderByKey ? `${orderByKey} ${orderByAsc ? 'ASC' : 'DESC'}` : '';
+
+  isEmptyPageResponse = (value: any) => {
+    return !value || !value.model_versions || !value.next_page_token;
+  };
+  
+  loadPage = (page: any, isInitialLoading: any) => {
     const { modelName } = this.props;
-    this.hasUnfilledRequests = true;
-    const promiseValues = [
-      this.props.getRegisteredModelApi(
-        modelName,
-        isInitialLoading === true ? this.initgetRegisteredModelApiRequestId : null,
-      ),
-      this.props.searchModelVersionsApi(
-        { name: modelName },
-        isInitialLoading === true ? this.initSearchModelVersionsApiRequestId : null,
-      ),
-    ];
-    return Promise.all(promiseValues).then(() => {
-      this.hasUnfilledRequests = false;
+    const {
+      tagSearchInput,
+      pageTokens,
+      orderByKey,
+      orderByAsc,
+      // eslint-disable-nextline
+    } = this.state;
+    this.setState({ loading: true, error: undefined });
+    this.updateUrlWithSearchFilter(tagSearchInput, orderByKey, orderByAsc, page);
+    const filters = ['name=${modelName}'];
+    if (tagSearchInput) {
+      filters.push(this.parseTagFiltersFromTagSearchInput(tagSearchInput));
+    }
+    this.props
+      .searchModelVersionsApi(
+        filters.join(' AND '),
+        this.state.maxResultsSelection,
+        ModelPageImpl.getOrderByExpr(orderByKey, orderByAsc),
+        pageTokens[page],
+        isInitialLoading ? this.initgetRegisteredModelApiRequestId : this.SearchModelVersionsApiRequestId,
+      )
+      .then((r: any) => {
+        this.updatePageState(page, r);
+      })
+      .catch((e: any) => {
+        this.setState({ currentPage: 1, error: e });
+        this.resetHistoryState();
+      })
+      .finally(() => {
+        this.setState({ loading: false });
+      });
+  };
+
+  getNextPageTokenFromResponse(response: any) {
+    const { value } = response;
+    if (this.isEmptyPageResponse(value)) {
+      // Why we could be here:
+      // 1. There are no models returned: we went to the previous page but all models after that
+      //    page's token has been deleted.
+      // 2. If `next_page_token` is not returned, assume there is no next page.
+      return null;
+    } else {
+      return value.next_page_token;
+    }
+  }
+
+  updatePageState = (page: any, response = {}) => {
+    const nextPageToken = this.getNextPageTokenFromResponse(response);
+    this.setState(
+      (prevState: any) => ({
+        currentPage: page,
+
+        pageTokens: {
+          ...prevState.pageTokens,
+          [page + 1]: nextPageToken,
+        },
+      }),
+      () => {
+        this.setPersistedPageTokens(this.state.pageTokens);
+      },
+    );
+  };
+
+  handleSearch = (tagSearchInput: any) => {
+    this.resetHistoryState();
+    this.setState({ tagSearchInput: tagSearchInput }, () => {
+      this.loadPage(1, false);
     });
   };
 
-  pollData = () => {
-    const { modelName, navigate } = this.props;
-    if (!this.hasUnfilledRequests && Utils.isBrowserTabVisible()) {
-      // @ts-expect-error TS(2554): Expected 1 arguments, but got 0.
-      return this.loadData().catch((e) => {
-        if (e instanceof ErrorWrapper && e.getErrorCode() === 'RESOURCE_DOES_NOT_EXIST') {
-          Utils.logErrorAndNotifyUser(e);
-          this.props.deleteRegisteredModelApi(modelName, undefined, true);
-          navigate(ModelRegistryRoutes.modelListPageRoute);
-        } else {
-          // eslint-disable-next-line no-console -- TODO(FEINF-3587)
-          console.error(e);
-        }
-        this.hasUnfilledRequests = false;
-      });
-    }
-    return Promise.resolve();
+  handleMaxResultsChange = (key: any) => {
+    this.setState({ maxResultsSelection: parseInt(key, 10) }, () => {
+      this.resetHistoryState();
+      const { maxResultsSelection } = this.state;
+      this.setMaxResultsInStore(maxResultsSelection);
+      this.loadPage(1, false);
+    });
   };
 
-  componentDidMount() {
-    // eslint-disable-next-line no-console -- TODO(FEINF-3587)
-    this.loadData(true).catch(console.error);
-    this.hasUnfilledRequests = false;
-    this.pollIntervalId = setInterval(this.pollData, POLL_INTERVAL);
-  }
+  handleClickNext = () => {
+    const { currentPage } = this.state;
+    this.loadPage(currentPage + 1, false);
+  };
 
-  componentWillUnmount() {
-    clearInterval(this.pollIntervalId);
-  }
+  handleClickPrev = () => {
+    const { currentPage } = this.state;
+    this.loadPage(currentPage - 1, false);
+  };
+
+  handleClickSortableColumn = (orderByKey: any, sortOrder: any) => {
+    const orderByAsc = sortOrder !== AntdTableSortOrder.DESC; // default to true
+    this.setState({ orderByKey, orderByAsc }, () => {
+      this.resetHistoryState();
+      this.loadPage(1, false);
+    });
+  };
+
+  getMaxResultsSelection = () => {
+    return this.state.maxResultsSelection;
+  };
 
   render() {
     const { model, modelVersions, navigate, modelName } = this.props;
+    const {
+      orderByKey,
+      orderByAsc,
+      currentPage,
+      pageTokens,
+      tagSearchInput,
+      // eslint-disable-nextline
+    } = this.state;
     return (
-      <PageContainer>
-        <RequestStateWrapper
-          requestIds={this.criticalInitialRequestIds}
-          // eslint-disable-next-line no-trailing-spaces
-        >
-          {(loading: any, hasError: any, requests: any) => {
-            if (hasError) {
-              clearInterval(this.pollIntervalId);
-              if (Utils.shouldRender404(requests, [this.initgetRegisteredModelApiRequestId])) {
-                return (
-                  <ErrorView
-                    statusCode={404}
-                    subMessage={this.props.intl.formatMessage(
-                      {
-                        defaultMessage: 'Model {modelName} does not exist',
-                        description: 'Sub-message text for error message on overall model page',
-                      },
-                      {
-                        modelName: modelName,
-                      },
-                    )}
-                    fallbackHomePageReactRoute={ModelRegistryRoutes.modelListPageRoute}
-                  />
-                );
-              }
-              const permissionDeniedErrors = requests.filter((request: any) => {
-                return (
-                  this.criticalInitialRequestIds.includes(request.id) &&
-                  request.error?.getErrorCode() === ErrorCodes.PERMISSION_DENIED
-                );
-              });
-              if (permissionDeniedErrors && permissionDeniedErrors[0]) {
-                return (
-                  <ErrorView
-                    statusCode={403}
-                    subMessage={this.props.intl.formatMessage(
-                      {
-                        defaultMessage: 'Permission denied for {modelName}. Error: "{errorMsg}"',
-                        description: 'Permission denied error message on registered model detail page',
-                      },
-                      {
-                        modelName: modelName,
-                        errorMsg: permissionDeniedErrors[0].error?.getMessageField(),
-                      },
-                    )}
-                    fallbackHomePageReactRoute={ModelRegistryRoutes.modelListPageRoute}
-                  />
-                );
-              }
-              // TODO(Zangr) Have a more generic boundary to handle all errors, not just 404.
-              triggerError(requests);
-            } else if (loading) {
-              return <Spinner />;
-            } else if (model) {
-              // Null check to prevent NPE after delete operation
-              return (
-                <ModelView
-                  model={model}
-                  modelVersions={modelVersions}
-                  handleEditDescription={this.handleEditDescription}
-                  handleDelete={this.handleDelete}
-                  navigate={navigate}
-                  onMetadataUpdated={this.loadData}
-                />
-              );
-            }
-            return null;
-          }}
-        </RequestStateWrapper>
-      </PageContainer>
+      <ScrollablePageWrapper>
+        <ModelView
+          // @ts-expect-error TS(2322): Type '{ models: any[] | undefined; loading: any; e... Remove this comment to see the full error message
+          models={models}
+          loading={this.state.loading}
+          error={this.state.error}
+          tagSearchInput={tagSearchInput}
+          orderByKey={orderByKey}
+          orderByAsc={orderByAsc}
+          currentPage={currentPage}
+          nextPageToken={pageTokens[currentPage + 1]}
+          onSearch={this.handleSearch}
+          onClickNext={this.handleClickNext}
+          onClickPrev={this.handleClickPrev}
+          onClickSortableColumn={this.handleClickSortableColumn}
+          onSetMaxResult={this.handleMaxResultsChange}
+          maxResultValue={this.getMaxResultsSelection()}
+        />
+      </ScrollablePageWrapper>
     );
   }
 }

@@ -50,9 +50,14 @@ import ExpandableList from '../../common/components/ExpandableList';
 
 type ModelVersionTableProps = {
   modelName: string;
+  pagination: React.ReactElement;
+  orderByKey: string;
+  orderByAsc: boolean;
+  isLoading: boolean;
   modelVersions?: ModelVersionInfoEntity[];
   activeStageOnly?: boolean;
   onChange: (selectedRowKeys: string[], selectedRows: ModelVersionInfoEntity[]) => void;
+  onSortChange: (params: { orderByKey: string; orderByAsc: boolean }) => void;
   modelEntity?: ModelEntity;
   onMetadataUpdated: () => void;
   usingNextModelsUI: boolean;
@@ -78,11 +83,17 @@ export const ModelVersionTable = ({
   modelName,
   modelVersions,
   activeStageOnly,
+  orderByAsc,
+  orderByKey,
+  onSortChange,
+  isLoading,
+  error,
   onChange,
   modelEntity,
   onMetadataUpdated,
   usingNextModelsUI,
   aliases,
+  pagination,
 }: ModelVersionTableProps) => {
   const aliasesByVersion = useMemo(() => {
     const result: Record<string, string[]> = {};
@@ -127,11 +138,6 @@ export const ModelVersionTable = ({
   });
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageSize: 10,
-    pageIndex: 0,
-  });
 
   useEffect(() => {
     const selectedVersions = (versions || []).filter(({ version }) => rowSelection[version]);
@@ -286,13 +292,11 @@ export const ModelVersionTable = ({
     data: versions || [],
     columns: tableColumns,
     state: {
-      pagination,
       rowSelection,
       sorting,
     },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getRowId: ({ version }) => version,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
@@ -303,21 +307,6 @@ export const ModelVersionTable = ({
   const getLearnMoreLinkUrl = () => {
     return RegisteringModelDocUrl;
   };
-
-  const paginationComponent = (
-    <Pagination
-      componentId="codegen_mlflow_app_src_model-registry_components_modelversiontable.tsx_403"
-      currentPageIndex={pagination.pageIndex + 1}
-      numTotal={(versions || []).length}
-      onChange={(page, pageSize) => {
-        setPagination({
-          pageSize: pageSize || pagination.pageSize,
-          pageIndex: page - 1,
-        });
-      }}
-      pageSize={pagination.pageSize}
-    />
-  );
 
   const emptyComponent = (
     <Empty
@@ -347,7 +336,7 @@ export const ModelVersionTable = ({
     <>
       <Table
         data-testid="model-list-table"
-        pagination={paginationComponent}
+        pagination={pagination}
         scrollable
         empty={isEmpty() ? emptyComponent : undefined}
         someRowsSelected={table.getIsSomeRowsSelected() || table.getIsAllRowsSelected()}

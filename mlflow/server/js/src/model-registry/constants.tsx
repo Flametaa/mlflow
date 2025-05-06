@@ -91,8 +91,6 @@ export const ModelVersionStatusIcons = {
   [ModelVersionStatus.READY]: <ReadyIcon />,
 };
 
-export const MODEL_VERSION_STATUS_POLL_INTERVAL = 10000;
-
 // Number of registered models initially shown on the model registry list page
 const REGISTERED_MODELS_PER_PAGE = 10;
 
@@ -100,11 +98,15 @@ const REGISTERED_MODELS_PER_PAGE = 10;
 // going to become a default soon
 export const REGISTERED_MODELS_PER_PAGE_COMPACT = 25;
 
+export const MODEL_VERSIONS_PER_PAGE_COMPACT = 25;
+
 export const MAX_RUNS_IN_SEARCH_MODEL_VERSIONS_FILTER = 75; // request size has a limit of 4KB
 
 export const REGISTERED_MODELS_SEARCH_NAME_FIELD = 'name';
 
 export const REGISTERED_MODELS_SEARCH_TIMESTAMP_FIELD = 'timestamp';
+
+export const MODEL_VERSIONS_SEARCH_TIMESTAMP_FIELD = 'timestamp';
 
 export const AntdTableSortOrder = {
   ASC: 'ascend',
